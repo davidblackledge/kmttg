@@ -18,9 +18,16 @@
  */
 package com.tivo.kmttg.gui.remote;
 
+import java.awt.List;
 import java.io.File;
+import java.io.FileInputStream;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Properties;
 import java.util.Stack;
 
 import com.tivo.kmttg.JSON.JSONException;
@@ -328,56 +335,17 @@ public class remotecontrol {
                      if (r.success) {
                         try {
                            JSONObject json = new JSONObject();
-                           String uri="";
-                           if (name.equals("Netflix (flash)"))
-                              uri = "x-tivo:flash:uuid:F23D193D-D2C2-4D18-9ABE-FA6B8488302F";
-                           if (name.equals("Plex"))
-                              uri = "x-tivo:web:https://plex.tv/web/tv/tivo";
-                           if (name.equals("Spotify"))
-                              uri = "x-tivo:web:https://d27nv3bwly96dm.cloudfront.net/indexOperav2.html";
-                           if (name.equals("Opera TV Store"))
-                              uri = "x-tivo:web:tvstore";
-                           if (name.equals("My Opera TV Store Apps"))
-                              uri = "x-tivo:web:tvstore:https://tivo.tvstore.opera.com/?startwith=myapps";
-                           if (name.equals("iHeartRadio"))
-                              uri = "x-tivo:web:https://tv.iheart.com/tivo/";
-                           if (name.equals("Netflix (html)"))
-                              uri = "x-tivo:netflix:netflix";
-                           if (name.equals("YouTube"))
-                              uri = "x-tivo:flash:uuid:B8CEA236-0C3D-41DA-9711-ED220480778E";
-                           if (name.equals("YouTube (html)"))
-                              uri = "x-tivo:web:https://www.youtube.com/tv";
-                           if (name.equals("Amazon Prime"))
-                              uri = "x-tivo:web:https://atv-ext.amazon.com/cdp/resources/app_host/index.html?deviceTypeID=A3UXGKN0EORVOF";
-                           if (name.equals("Vudu (html)"))
-                              uri = "x-tivo:vudu:vudu";
-                           if (name.equals("Amazon (hme)"))
-                              uri = "x-tivo:hme:uuid:35FE011C-3850-2228-FBC5-1B9EDBBE5863";
-                           if (name.equals("Hulu Plus"))
-                              uri = "x-tivo:flash:uuid:802897EB-D16B-40C8-AEEF-0CCADB480559";
-                           if (name.equals("AOL On"))
-                              uri = "x-tivo:flash:uuid:EA1DEF9D-D346-4284-91A0-FEA8EAF4CD39";
-                           if (name.equals("Launchpad"))
-                              uri = "x-tivo:flash:uuid:545E064D-C899-407E-9814-69A021D68DAD";
-                           if (name.equals("streambaby")) {
-                              String ip;
-                              try {
-                                 DatagramSocket socket = new DatagramSocket();
-                                 socket.connect(InetAddress.getByName("8.8.8.8"), 10002);
-                                 InetAddress IP = socket.getLocalAddress();
-                                 if (IP.isReachable(3000)) {
-                                    ip = IP.getHostAddress();
-                                    if (ip.equals("0.0.0.0"))
-                                       ip = InetAddress.getLocalHost().getHostAddress();
-                                 }
-                                 else
-                                    ip = InetAddress.getLocalHost().getHostAddress();
-                                 socket.close();
-                              } catch (Exception e) {
-                                 ip = "localhost";
-                              }
-                              int port = 7290;
-                              uri = "x-tivo:hme:http://" + ip + ":" + port + "/streambaby";
+                           LinkedHashMap apps = getAppData();
+                           String uri = apps.get(name);
+                           if(uri == null) uri = "";
+                           
+                           String hmeLocalHost = "http://localhost";
+                           int localhost = uri.indexOf(hmeLocalHost);
+                           if (localhost > 0) {
+                              String ip = getLocalIP("localhost");
+                              uri = uri.substring(0, localhost-1) + 
+                                  "http://" + ip + 
+                                  uri.substring(localhost + hmeLocalHost.length);
                            }
                            json.put("uri", uri);
                            log.print("Launching " + uri);
@@ -922,12 +890,57 @@ public class remotecontrol {
       new Thread(task).start();
    }
       
+   /** get the ip address of the local machine.  If there is an exception, return the provided default */
+   public String getLocalIP(String defaultResult) {
+      String ip;
+      try {
+         DatagramSocket socket = new DatagramSocket();
+         socket.connect(InetAddress.getByName("8.8.8.8"), 10002);
+         InetAddress IP = socket.getLocalAddress();
+         if (IP.isReachable(3000)) {
+            ip = IP.getHostAddress();
+            if (ip.equals("0.0.0.0"))
+               ip = InetAddress.getLocalHost().getHostAddress();
+         }
+         else
+            ip = InetAddress.getLocalHost().getHostAddress();
+         socket.close();
+      } catch (Exception e) {
+         ip = defaultResult;
+      }
+      return ip;
+   }
+   
+   private LinkedHashMap<String, String> _appData = null;
+   /** get an ordered map of app names to uris from the rc_apps.properties file*/
+   public LinkedHashMap<String, String> getAppData() {
+       if (_appData == null) {
+           String programDir = new File(
+           config.class.getProtectionDomain().getCodeSource().getLocation().getPath()
+           ).getParent();
+           Properties rc_apps = new Properties();
+           rc_apps.load(new FileInputStream(programDir + File.separator + "rc_apps.properties"));
+           ArrayList<String> names = new ArrayList<String>(rc_apps.stringPropertyNames());
+           Collections.sort(names);
+           LinkedHashMap<String, String> data = new LinkedHashMap<String, String>(names.size());
+           int i = 0;
+           for(String name : names) {
+               String[] d = rc_apps.getProperty(name).split("\\|");
+               if(d.length > 1) {
+                   data.put(d[0],d[1]);
+               }
+           }
+           _appData = data;
+       }
+       return _appData;
+   }
+      
    public void setHmeDestinations(final String tivoName) {
-      String[] hmeNames = {
-         "Netflix (html)", "YouTube (html)", "Vudu (html)", "Plex",
-         "Amazon Prime", "Hulu Plus", "Spotify", "iHeartRadio",
-         "Opera TV Store", "streambaby"
-      };
+      LinkedHashMap<String, String> data = getAppData();
+
+      String[] hmeNames = new String[data.size()];
+      hmeNames = data.keySet().toArray(hmeNames);
+      
       hme.getItems().clear();
       for (int i=0; i<hmeNames.length; ++i)
          hme.getItems().add(hmeNames[i]);
