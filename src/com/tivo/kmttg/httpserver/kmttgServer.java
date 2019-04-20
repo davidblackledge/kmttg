@@ -126,9 +126,14 @@ public class kmttgServer extends HTTPServer {
       
       // Get list of video files in kmttg video places
       if (path.equals("/getVideoFiles")) {
-         handleVideoFiles(resp);
+         handleVideoFiles(resp, false);
          return;
       }
+      // list video file name and array of related suffixes.
+      if (path.equals("/getVideoFileDetails")) {
+          handleVideoFiles(resp, true);
+          return;
+       }
       
       // Get list of browser shares
       if (path.equals("/getBrowserShares")) {
@@ -336,7 +341,7 @@ public class kmttgServer extends HTTPServer {
    }
    
    // Return list of video files known to kmttg
-   public void handleVideoFiles(Response resp) throws IOException {
+   public void handleVideoFiles(Response resp, boolean addDetails) throws IOException {
       // LinkedHashMap is used to keep hash keys unique
       LinkedHashMap<String,Integer> dirs = new LinkedHashMap<String,Integer>();
       if (config.httpserver_shares.isEmpty()) {
@@ -351,12 +356,29 @@ public class kmttgServer extends HTTPServer {
             dirs.put(config.httpserver_shares.get(dir), 1);
          }
       }
-      LinkedHashMap<String,Integer> h = new LinkedHashMap<String,Integer>();
+      LinkedHashMap<String,JSONArray> h = new LinkedHashMap<String,JSONArray>();
       for (String dir : dirs.keySet())
          getVideoFiles(dir, h);
       JSONArray a = new JSONArray();
-      for (String key : h.keySet()) {
-         a.put(key);
+      if(addDetails) {
+    	  try {
+		      for (String key : h.keySet()) {
+	            JSONObject json = new JSONObject();
+	            json.put("videoFile", key);
+	            json.put("size", file.size(key));
+	            if(h.get(key).length() > 0) {
+	            	json.put("suffixes", h.get(key));
+	            }
+		        a.put(json);
+			  }
+          } catch (JSONException e) {
+              resp.sendError(500, "handleVideoFiles - Error providing detailed files list");
+              log.error("handleVideoFiles - " + e.getMessage());
+          }
+      } else {
+	      for (String key : h.keySet()) {
+	         a.put(key);
+	      }
       }
       resp.send(200, a.toString());
    }
@@ -446,25 +468,48 @@ public class kmttgServer extends HTTPServer {
       }
    }
    
-   private void getVideoFiles(String pathname, LinkedHashMap<String,Integer> h) {
+   private void getVideoFiles(String pathname, LinkedHashMap<String,JSONArray> h) {
       File f = new File(pathname);
       File[] listfiles = f.listFiles();
       for (int i = 0; i < listfiles.length; i++) {
          if (listfiles[i].isDirectory()) {
             File[] internalFile = listfiles[i].listFiles();
             for (int j = 0; j < internalFile.length; j++) {
-               if (Hlsutils.isVideoFile(internalFile[j].getAbsolutePath()))
-                  h.put(internalFile[j].getAbsolutePath(), 1);
+            	String selectedFile = internalFile[j].getAbsolutePath();
+               if (Hlsutils.isVideoFile(selectedFile))
+                  h.put(selectedFile, getRelatedFileSuffixes(selectedFile, internalFile));
                if (internalFile[j].isDirectory()) {
-                  String name = internalFile[j].getAbsolutePath();
+                  String name = selectedFile;
                   getVideoFiles(name, h);
                }
             }
          } else {
-            if (Hlsutils.isVideoFile(listfiles[i].getAbsolutePath()))
-               h.put(listfiles[i].getAbsolutePath(), 1);
+        	 String selectedFile = listfiles[i].getAbsolutePath();
+            if (Hlsutils.isVideoFile(selectedFile))
+               h.put(selectedFile, getRelatedFileSuffixes(selectedFile, listfiles));
          }
       }
+   }
+   
+   private JSONArray getRelatedFileSuffixes(String fileAbsolutePath, File[] candidateFiles) {
+	   JSONArray a = new JSONArray();
+	   int lastDot = fileAbsolutePath.lastIndexOf('.');
+	   String fileBase;
+	   if(lastDot >=0) {
+		   fileBase = fileAbsolutePath.substring(0, lastDot-1);
+	   } else {
+		   fileBase = fileAbsolutePath;
+	   }
+	   for(int i = 0 ; i < candidateFiles.length ; ++i) {
+		   String candidate = candidateFiles[i].getAbsolutePath();
+		   if(candidate.startsWith(fileBase)) {
+			   String suffix = candidate.substring(fileBase.length());
+			   if(!fileAbsolutePath.equals(candidate) && !Hlsutils.isVideoFile(candidate)) {
+				   a.put(suffix);
+			   }
+		   }
+	   }
+	   return a;
    }
    
    private void handleJobs(Request req, Response resp) throws IOException {
