@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -335,7 +336,7 @@ public class remotecontrol {
                      if (r.success) {
                         try {
                            JSONObject json = new JSONObject();
-                           LinkedHashMap apps = getAppData();
+                           LinkedHashMap<String, String> apps = getAppData();
                            String uri = apps.get(name);
                            if(uri == null) uri = "";
                            
@@ -345,7 +346,7 @@ public class remotecontrol {
                               String ip = getLocalIP("localhost");
                               uri = uri.substring(0, localhost-1) + 
                                   "http://" + ip + 
-                                  uri.substring(localhost + hmeLocalHost.length);
+                                  uri.substring(localhost + hmeLocalHost.length());
                            }
                            json.put("uri", uri);
                            log.print("Launching " + uri);
@@ -915,11 +916,18 @@ public class remotecontrol {
    /** get an ordered map of app names to uris from the rc_apps.properties file*/
    public LinkedHashMap<String, String> getAppData() {
        if (_appData == null) {
+    	   String filename = "rc_apps.properties";
            String programDir = new File(
            config.class.getProtectionDomain().getCodeSource().getLocation().getPath()
            ).getParent();
+           // getLocation gives a URL, but url encoded spaces won't work for FileInputStream.
+           programDir = string.urlDecode(programDir);
            Properties rc_apps = new Properties();
-           rc_apps.load(new FileInputStream(programDir + File.separator + "rc_apps.properties"));
+           try {
+        	   rc_apps.load(new FileInputStream(programDir + File.separator + filename));
+           } catch(Exception e) {
+        	   log.error("reading " + filename + " " + e.getMessage());
+           }
            ArrayList<String> names = new ArrayList<String>(rc_apps.stringPropertyNames());
            Collections.sort(names);
            LinkedHashMap<String, String> data = new LinkedHashMap<String, String>(names.size());
