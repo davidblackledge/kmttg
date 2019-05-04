@@ -42,6 +42,7 @@ import com.tivo.kmttg.util.ffmpeg;
 import com.tivo.kmttg.util.file;
 import com.tivo.kmttg.util.log;
 import com.tivo.kmttg.util.mediainfo;
+import com.tivo.kmttg.util.parseNPL;
 import com.tivo.kmttg.util.string;
 
 public class kmttgServer extends HTTPServer {
@@ -169,6 +170,12 @@ public class kmttgServer extends HTTPServer {
       if (path.equals("/jobs")) {
          handleJobs(req, resp);
          return;
+      }
+      
+      // start a single FILES/filename or tivo/json job
+      if (path.equals("/startJob")) {
+          startJob(req, resp);
+          return;
       }
       
       // This is normal/default handling
@@ -515,6 +522,87 @@ public class kmttgServer extends HTTPServer {
 	   }
 	   return a;
    }
+   
+    private void startJob(Request req, Response resp) throws IOException {
+        Map<String, String> params = req.getParams();
+        if (params.containsKey("tivo")) {
+            String tivo = string.urlDecode(params.get("tivo"));
+            if (params.containsKey("recording")) {
+                String recording = string.urlDecode(params.get("recording"));
+                try {
+                    startJob(tivo, recording);
+                } catch (Exception e) {
+                    resp.sendError(500, "startJob - " + e.getMessage());
+                    return;
+                }
+                resp.sendError(200, "Started job");
+                return;
+            }
+        }
+        resp.sendError(400, "startJob request missing relevant parameters");
+    }
+
+    /** single-job equivalent of tivoTab.startCB */
+    private void startJob(String tivoName, String recordingJsonOrFile) throws JSONException {
+        debug.print("");
+
+        Stack<Hashtable<String, Object>> entries = new Stack<Hashtable<String, Object>>();
+        if (tivoName.equals("FILES")) {
+            Hashtable<String, Object> h = new Hashtable<String, Object>();
+            h.put("tivoName", tivoName);
+            h.put("mode", "FILES");
+            String fileName = recordingJsonOrFile;
+            if (fileName != null) {
+                h.put("startFile", fileName);
+                entries.add(h);
+            }
+        } else {
+            JSONObject json = new JSONObject(recordingJsonOrFile);
+            Hashtable<String, String> data = parseNPL.rpcToHashEntry(tivoName, json);
+
+            Hashtable<String, Object> h = new Hashtable<String, Object>();
+            h.put("tivoName", tivoName);
+            h.put("mode", "Download");
+            h.put("entry", data);
+            entries.add(h);
+        }
+
+        boolean metadata = config.gui.metadata.isSelected(),
+                decrypt = config.gui.decrypt.isSelected(),
+                qsfix = config.gui.qsfix.isSelected(),
+                twpdelete = config.gui.twpdelete.isSelected(), 
+                rpcdelete = config.gui.rpcdelete.isSelected(), 
+                comskip = config.gui.comskip.isSelected(), 
+                comcut = config.gui.comcut.isSelected(), 
+                captions = config.gui.captions.isSelected(), 
+                encode = config.gui.encode.isSelected(),
+                //push = config.gui.push.isSelected(),
+                custom = config.gui.custom.isSelected();
+        // Launch jobs appropriately
+        for (int j = 0; j < entries.size(); ++j) {
+            Hashtable<String, Object> h = entries.get(j);
+            if (tivoName.equals("FILES")) {
+                h.put("metadataTivo", metadata);
+                h.put("metadata", false);
+            } else {
+                h.put("metadata", metadata);
+                h.put("metadataTivo", false);
+            }
+            h.put("TSDownload", config.TSDownload);
+            h.put("decrypt", decrypt);
+            h.put("qsfix", qsfix);
+            h.put("twpdelete", twpdelete);
+            h.put("rpcdelete", rpcdelete && config.rpcEnabled(tivoName));
+            h.put("comskip", comskip);
+            h.put("comcut", comcut);
+            h.put("captions", captions);
+            h.put("encode", encode);
+            // h.put("push", push);
+            h.put("custom", custom);
+            jobMonitor.LaunchJobs(h);
+        }
+    }
+
    
    private void handleJobs(Request req, Response resp) throws IOException {
       Map<String,String> params = req.getParams();
