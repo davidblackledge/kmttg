@@ -315,6 +315,10 @@ public class kmttgServer extends HTTPServer {
                json.put("rpc", 1);
             else
                json.put("rpc", 0);
+            if (config.nplCapable(tivoName))
+                json.put("npl", 1);
+             else
+                json.put("npl", 0);
             a.put(json);
          }
          resp.send(200, a.toString());
