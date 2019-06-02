@@ -18,21 +18,16 @@
  */
 package com.tivo.kmttg.gui.remote;
 
-import java.awt.List;
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.URLDecoder;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
+import java.io.FileReader;
 import java.util.LinkedHashMap;
-import java.util.Properties;
 import java.util.Stack;
 
+import com.tivo.kmttg.JSON.JSONArray;
 import com.tivo.kmttg.JSON.JSONException;
 import com.tivo.kmttg.JSON.JSONObject;
+import com.tivo.kmttg.JSON.JSONTokener;
 import com.tivo.kmttg.main.config;
 import com.tivo.kmttg.main.telnet;
 import com.tivo.kmttg.rpc.Remote;
@@ -334,26 +329,10 @@ public class remotecontrol {
                   @Override public Void call() {
                      Remote r = config.initRemote(tivo.getValue());
                      if (r.success) {
-                        try {
-                           JSONObject json = new JSONObject();
-                           LinkedHashMap<String, String> apps = getAppData();
-                           String uri = apps.get(name);
-                           if(uri == null) uri = "";
-                           
-                           String hmeLocalHost = "http://localhost";
-                           int localhost = uri.indexOf(hmeLocalHost);
-                           if (localhost > 0) {
-                              String ip = getLocalIP("localhost");
-                              uri = uri.substring(0, localhost-1) + 
-                                  "http://" + ip + 
-                                  uri.substring(localhost + hmeLocalHost.length());
-                           }
-                           json.put("uri", uri);
-                           log.print("Launching " + uri);
-                           r.Command("Navigate", json);
-                        } catch (JSONException e1) {
-                           log.error("Launch App - " + e1.getMessage());
-                        }
+                        LinkedHashMap<String, String> apps = getAppData();
+                        String uri = apps.get(name);
+                        r.navigate(uri);
+
                         r.disconnect();
                      }
                      return null;
@@ -891,52 +870,50 @@ public class remotecontrol {
       new Thread(task).start();
    }
       
-   /** get the ip address of the local machine.  If there is an exception, return the provided default */
-   public String getLocalIP(String defaultResult) {
-      String ip;
+   /**
+    * Read the web/rc_apps.json file as a JSONArray
+    * @return
+    */
+   public static JSONArray readAppConfiguration() {
+	   String filename = "rc_apps.json";
+       String webdir = config.httpserver_home;
+       
+      JSONArray rc_apps = new JSONArray();
       try {
-         DatagramSocket socket = new DatagramSocket();
-         socket.connect(InetAddress.getByName("8.8.8.8"), 10002);
-         InetAddress IP = socket.getLocalAddress();
-         if (IP.isReachable(3000)) {
-            ip = IP.getHostAddress();
-            if (ip.equals("0.0.0.0"))
-               ip = InetAddress.getLocalHost().getHostAddress();
-         }
-         else
-            ip = InetAddress.getLocalHost().getHostAddress();
-         socket.close();
+         BufferedReader is = new BufferedReader(new FileReader(webdir + File.separator + filename));
+         rc_apps = new JSONArray(new JSONTokener(is));
+         is.close();
       } catch (Exception e) {
-         ip = defaultResult;
+         log.error("getAppData - " + e.getMessage());
+         return null;
       }
-      return ip;
+      return rc_apps;
    }
    
    private LinkedHashMap<String, String> _appData = null;
-   /** get an ordered map of app names to uris from the rc_apps.properties file*/
+   /** get an ordered map of app names to uris from the rc_apps.json file*/
    public LinkedHashMap<String, String> getAppData() {
        if (_appData == null) {
-    	   String filename = "rc_apps.properties";
-           String programDir = new File(
-           config.class.getProtectionDomain().getCodeSource().getLocation().getPath()
-           ).getParent();
-           // getLocation gives a URL, but url encoded spaces won't work for FileInputStream.
-           programDir = string.urlDecode(programDir);
-           Properties rc_apps = new Properties();
-           try {
-        	   rc_apps.load(new FileInputStream(programDir + File.separator + filename));
-           } catch(Exception e) {
-        	   log.error("reading " + filename + " " + e.getMessage());
-           }
-           ArrayList<String> names = new ArrayList<String>(rc_apps.stringPropertyNames());
-           Collections.sort(names);
-           LinkedHashMap<String, String> data = new LinkedHashMap<String, String>(names.size());
-           int i = 0;
-           for(String name : names) {
-               String[] d = rc_apps.getProperty(name).split("\\|");
-               if(d.length > 1) {
-                   data.put(d[0],d[1]);
-               }
+    	   JSONArray rc_apps = readAppConfiguration();
+
+           LinkedHashMap<String, String> data = new LinkedHashMap<String, String>(rc_apps.length());
+           
+           for(int i = 0 ; i < rc_apps.length() ; ++i) {
+        	   try {
+	        	   JSONObject app = (JSONObject) rc_apps.get(i);
+	        	   if(!(app.has("disabled") && app.getBoolean("disabled"))) {
+	        		   String add = "";
+	        		   if(app.has("channel")) {
+	        			   add = " (channel "+app.getString("channel")+")";
+	        		   }
+	        		   if(app.has("name") && app.has("uri")) {
+	        			   data.put(app.getString("name")+add, app.getString("uri"));
+	        		   }
+	        		   // if(app.has("description"))...
+	        	   }
+     	      } catch (Exception e) {
+     	         log.error("getAppData - " + e.getMessage());
+     	      }
            }
            _appData = data;
        }
