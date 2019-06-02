@@ -4,7 +4,7 @@
 "uri":"x-tivo:hme:http://localhost:7291/ttg",
 "channel":"0-0",
 "description":"HME App interface to some features of KMTTG, if available",
-"disabled":false
+"disabled":true
 },
 {
 "name":"Netflix (html)",
